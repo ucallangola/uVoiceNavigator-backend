@@ -1,7 +1,10 @@
 import { PrismaClient } from '@prisma/client';
+import { PrismaPg } from '@prisma/adapter-pg';
 import * as bcrypt from 'bcrypt';
 
-const prisma = new PrismaClient();
+// Prisma 7: pass PoolConfig directly to avoid @types/pg version conflicts
+const adapter = new PrismaPg({ connectionString: process.env.DATABASE_URL });
+const prisma  = new PrismaClient({ adapter } as any);
 
 async function main() {
   console.log('Seeding database...');
@@ -150,7 +153,7 @@ async function main() {
   // ============================================================
   console.log('Creating supervisor user...');
 
-  const supervisorPasswordHash = await bcrypt.hash('Supervisor@123456', 12);
+  const supervisorPasswordHash = await bcrypt.hash('Super@123456', 12);
 
   const supervisorUser = await prisma.user.upsert({
     where: { email: 'supervisor@uvoice.com' },
@@ -193,7 +196,7 @@ async function main() {
   console.log('');
   console.log('Default users created:');
   console.log('  Admin:      admin@uvoice.com      / Admin@123456');
-  console.log('  Supervisor: supervisor@uvoice.com / Supervisor@123456');
+  console.log('  Supervisor: supervisor@uvoice.com / Super@123456');
   console.log('========================================');
 }
 

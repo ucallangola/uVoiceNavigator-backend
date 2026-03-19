@@ -76,7 +76,7 @@ export class DashboardController {
     @Query('period') period: string = '7d',
     @Query('limit') limit: number = 10,
   ) {
-    return this.dashboardService.getTopAgents(period, Number(limit));
+    return this.dashboardService.getTopAgents(period, Number(limit) || 10);
   }
 
   @Get('sources')

@@ -22,6 +22,7 @@ export class AlertsService {
         user: this.configService.get<string>('smtp.user'),
         pass: this.configService.get<string>('smtp.pass'),
       },
+      tls: { rejectUnauthorized: false },
     });
   }
 
@@ -227,11 +228,13 @@ export class AlertsService {
       </html>
     `;
 
-    await this.transporter.sendMail({
+    const info = await this.transporter.sendMail({
       from: `"${this.configService.get<string>('smtp.fromName')}" <${this.configService.get<string>('smtp.fromEmail')}>`,
       to: recipientEmail,
       subject,
       html,
     });
+
+    this.logger.log(`Email sent to ${recipientEmail} — MessageId: ${info.messageId} | Response: ${info.response}`);
   }
 }

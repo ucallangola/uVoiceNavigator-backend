@@ -88,6 +88,21 @@ export class RolesService {
     return this.findOne(roleId);
   }
 
+  async update(id: string, dto: Partial<{ name: string; description: string }>) {
+    await this.findOne(id);
+    return this.prisma.role.update({
+      where: { id },
+      data: dto,
+      include: { permissions: { include: { permission: true } } },
+    });
+  }
+
+  async remove(id: string) {
+    await this.findOne(id);
+    await this.prisma.role.delete({ where: { id } });
+    return { message: `Role ${id} deleted successfully` };
+  }
+
   async removePermission(roleId: string, permissionId: string) {
     await this.findOne(roleId);
 

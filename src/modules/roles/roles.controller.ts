@@ -5,6 +5,7 @@ import {
   Get,
   Param,
   Post,
+  Put,
   UseGuards,
 } from '@nestjs/common';
 import {
@@ -52,6 +53,26 @@ export class RolesController {
   @ApiResponse({ status: 404, description: 'Role not found.' })
   findOne(@Param('id') id: string) {
     return this.rolesService.findOne(id);
+  }
+
+  @Put(':id')
+  @Roles('admin')
+  @ApiOperation({ summary: 'Update a role' })
+  @ApiParam({ name: 'id', description: 'Role UUID' })
+  @ApiResponse({ status: 200, description: 'Role updated.' })
+  @ApiResponse({ status: 404, description: 'Role not found.' })
+  update(@Param('id') id: string, @Body() dto: Partial<CreateRoleDto>) {
+    return this.rolesService.update(id, dto);
+  }
+
+  @Delete(':id')
+  @Roles('admin')
+  @ApiOperation({ summary: 'Delete a role' })
+  @ApiParam({ name: 'id', description: 'Role UUID' })
+  @ApiResponse({ status: 200, description: 'Role deleted.' })
+  @ApiResponse({ status: 404, description: 'Role not found.' })
+  remove(@Param('id') id: string) {
+    return this.rolesService.remove(id);
   }
 
   @Post(':id/permissions')
