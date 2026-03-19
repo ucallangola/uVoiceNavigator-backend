@@ -8,6 +8,7 @@ import * as winston from 'winston';
 import appConfig from './config/app.config';
 import databaseConfig from './config/database.config';
 import jwtConfig from './config/jwt.config';
+import mssqlConfig from './config/mssql.config';
 import redisConfig from './config/redis.config';
 import smtpConfig from './config/smtp.config';
 import { HttpExceptionFilter } from './common/filters/http-exception.filter';
@@ -24,6 +25,7 @@ import { PermissionsModule } from './modules/permissions/permissions.module';
 import { RolesModule } from './modules/roles/roles.module';
 import { UsersModule } from './modules/users/users.module';
 import { HealthModule } from './modules/health/health.module';
+import { NotificationsModule } from './modules/notifications/notifications.module';
 import { JwtAuthGuard } from './modules/auth/guards/jwt-auth.guard';
 
 @Module({
@@ -32,7 +34,7 @@ import { JwtAuthGuard } from './modules/auth/guards/jwt-auth.guard';
     ConfigModule.forRoot({
       isGlobal: true,
       envFilePath: '.env',
-      load: [appConfig, databaseConfig, jwtConfig, redisConfig, smtpConfig],
+      load: [appConfig, databaseConfig, jwtConfig, mssqlConfig, redisConfig, smtpConfig],
     }),
 
     // Winston Logger
@@ -104,6 +106,7 @@ import { JwtAuthGuard } from './modules/auth/guards/jwt-auth.guard';
     HealthModule,
 
     // Feature Modules
+    NotificationsModule,
     AuthModule,
     UsersModule,
     RolesModule,

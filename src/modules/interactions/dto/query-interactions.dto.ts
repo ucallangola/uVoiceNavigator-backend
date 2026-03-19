@@ -53,6 +53,20 @@ export class QueryInteractionsDto {
   @IsDateString()
   dateTo?: string;
 
+  @ApiPropertyOptional({ description: 'Minimum talk time in seconds' })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  talkTimeMin?: number;
+
+  @ApiPropertyOptional({ description: 'Maximum talk time in seconds' })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  talkTimeMax?: number;
+
   @ApiPropertyOptional({ description: 'Field to order by', default: 'date' })
   @IsOptional()
   @IsString()

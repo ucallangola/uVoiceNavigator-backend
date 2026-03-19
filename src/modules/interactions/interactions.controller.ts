@@ -38,6 +38,22 @@ export class InteractionsController {
     return this.interactionsService.findAll(query);
   }
 
+  @Get('inbound')
+  @Permissions('interactions:read')
+  @ApiOperation({ summary: 'List inbound interactions only' })
+  @ApiResponse({ status: 200, description: 'Paginated list of inbound interactions.' })
+  findInbound(@Query() query: QueryInteractionsDto) {
+    return this.interactionsService.findAll({ ...query, recordType: 'inbound' });
+  }
+
+  @Get('outbound')
+  @Permissions('interactions:read')
+  @ApiOperation({ summary: 'List outbound interactions only' })
+  @ApiResponse({ status: 200, description: 'Paginated list of outbound interactions.' })
+  findOutbound(@Query() query: QueryInteractionsDto) {
+    return this.interactionsService.findAll({ ...query, recordType: 'outbound' });
+  }
+
   @Get('statistics')
   @Permissions('interactions:read')
   @ApiOperation({ summary: 'Get interaction aggregate statistics' })

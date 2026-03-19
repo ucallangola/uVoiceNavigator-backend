@@ -4,6 +4,7 @@ import { ScheduleModule } from '@nestjs/schedule';
 import { PrismaService } from '../../database/prisma.service';
 import { AlertsModule } from '../alerts/alerts.module';
 import { DashboardModule } from '../dashboard/dashboard.module';
+import { NotificationsModule } from '../notifications/notifications.module';
 import { AUDIO_PROCESSING_QUEUE } from './processors/audio-processing.processor';
 import { EMAIL_ALERT_QUEUE } from './processors/email-alert.processor';
 import { AudioProcessingProcessor } from './processors/audio-processing.processor';
@@ -19,6 +20,7 @@ import { JobsService } from './jobs.service';
     ),
     AlertsModule,
     DashboardModule,
+    NotificationsModule,
   ],
   providers: [
     JobsService,

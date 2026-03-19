@@ -2,6 +2,7 @@ import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import * as nodemailer from 'nodemailer';
 import { PrismaService } from '../../database/prisma.service';
+import { NotificationsService } from '../notifications/notifications.service';
 import { CreateAlertDto } from './dto/create-alert.dto';
 import { UpdateAlertDto } from './dto/update-alert.dto';
 
@@ -13,6 +14,7 @@ export class AlertsService {
   constructor(
     private prisma: PrismaService,
     private configService: ConfigService,
+    private notificationsService: NotificationsService,
   ) {
     this.transporter = nodemailer.createTransport({
       host: this.configService.get<string>('smtp.host'),
@@ -88,6 +90,8 @@ export class AlertsService {
             data: { lastSent: new Date() },
           });
 
+          this.notificationsService.emit('alert:sent', { alertId: alert.id, email: alert.recipientEmail });
+          this.notificationsService.emit('dashboard:refresh', {});
           this.logger.log(`Alert sent successfully to ${alert.recipientEmail}`);
         } catch (error) {
           this.logger.error(`Failed to send alert to ${alert.recipientEmail}: ${error.message}`);
