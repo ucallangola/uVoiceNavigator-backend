@@ -5,6 +5,7 @@ import { MssqlService } from '../../database/mssql.service';
 import { HealthController } from './health.controller';
 import { PrismaHealthIndicator } from './prisma.health-indicator';
 import { MssqlHealthIndicator } from './mssql.health-indicator';
+import { EtlDirHealthIndicator } from './etl-dir.health-indicator';
 
 @Module({
   imports: [TerminusModule],
@@ -12,6 +13,7 @@ import { MssqlHealthIndicator } from './mssql.health-indicator';
   providers: [
     PrismaHealthIndicator,
     MssqlHealthIndicator,
+    EtlDirHealthIndicator,
     PrismaService,
     MssqlService,
   ],

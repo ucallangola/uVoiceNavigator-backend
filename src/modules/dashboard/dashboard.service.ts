@@ -253,6 +253,38 @@ export class DashboardService {
     }));
   }
 
+  async getDispositions(period: string = '7d') {
+    const { start, end } = this.getDateRange(period);
+
+    const rows = await this.mssql.query<{ disposition: string; count: number }>(`
+      WITH cte AS (
+        SELECT ISNULL(Disposition, '') AS disposition, [Date] AS date
+        FROM [dbo].[CallRecordManualImportBCBInbs]
+        UNION ALL
+        SELECT ISNULL(Disposition, '') AS disposition, [Date] AS date
+        FROM [dbo].[CallRecordManualImportBCBOuts]
+      )
+      SELECT TOP 10
+        disposition,
+        COUNT(*) AS count
+      FROM cte
+      WHERE date >= @start AND date <= @end
+        AND disposition != ''
+      GROUP BY disposition
+      ORDER BY count DESC
+    `, {
+      start: { value: start },
+      end:   { value: end },
+    });
+
+    const total = rows.reduce((sum, r) => sum + Number(r.count), 0);
+    return rows.map(r => ({
+      name:       r.disposition,
+      value:      Number(r.count),
+      percentage: total > 0 ? Math.round((Number(r.count) / total) * 1000) / 10 : 0,
+    }));
+  }
+
   async getSourceDistribution() {
     // Source distribution still from Prisma/audio files
     const [goContactCount, five9Count, goContactTotal, five9Total] = await Promise.all([

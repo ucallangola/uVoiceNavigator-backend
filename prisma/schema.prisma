@@ -162,13 +162,73 @@ model Audio {
 model EmailAlert {
   id             String    @id @default(uuid())
   recipientEmail String    @map("recipient_email")
-  schedule       String    // cron expression
+  alertType      String    @default("periodic") @map("alert_type") // 'periodic' | 'instant'
+  schedule       String?   // cron expression (required for periodic, null for instant)
   enabled        Boolean   @default(true)
   lastSent       DateTime? @map("last_sent")
   createdAt      DateTime  @default(now()) @map("created_at")
   updatedAt      DateTime  @updatedAt @map("updated_at")
 
   @@map("email_alerts")
+}
+
+// ============================================================
+// ETL Models
+// ============================================================
+
+model EtlRun {
+  id          String    @id @default(uuid())
+  startedAt   DateTime  @default(now()) @map("started_at")
+  finishedAt  DateTime? @map("finished_at")
+  status      String    @default("running") // 'running' | 'completed' | 'failed'
+  totalFiles  Int       @default(0) @map("total_files")
+  uploaded    Int       @default(0)
+  failed      Int       @default(0)
+  skipped     Int       @default(0)
+  errorMsg    String?   @map("error_msg")
+
+  files EtlFile[]
+  logs  EtlLog[]
+
+  @@index([startedAt])
+  @@index([status])
+  @@map("etl_runs")
+}
+
+model EtlFile {
+  id           String    @id @default(uuid())
+  runId        String    @map("run_id")
+  filename     String
+  sourcePath   String    @map("source_path")
+  wasabiKey    String?   @map("wasabi_key")
+  wasabiUrl    String?   @map("wasabi_url")
+  fileSize     Int       @map("file_size")
+  mimeType     String?   @map("mime_type")
+  status       String    @default("pending") // 'pending' | 'uploaded' | 'moved' | 'failed'
+  errorMsg     String?   @map("error_msg")
+  processedAt  DateTime? @map("processed_at")
+  createdAt    DateTime  @default(now()) @map("created_at")
+
+  run EtlRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+
+  @@index([runId])
+  @@index([status])
+  @@map("etl_files")
+}
+
+model EtlLog {
+  id        String   @id @default(uuid())
+  runId     String   @map("run_id")
+  level     String   @default("info") // 'info' | 'warn' | 'error'
+  message   String
+  metadata  Json?
+  createdAt DateTime @default(now()) @map("created_at")
+
+  run EtlRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+
+  @@index([runId])
+  @@index([createdAt])
+  @@map("etl_logs")
 }
 
 model AuditLog {

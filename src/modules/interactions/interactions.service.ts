@@ -218,7 +218,7 @@ export class InteractionsService {
       params['campaign'] = { value: `%${campaign}%` };
     }
     if (search) {
-      filters.push(`(agentName LIKE @search OR customerPhone LIKE @search OR campaign LIKE @search OR callId LIKE @search)`);
+      filters.push(`(agentName LIKE @search OR customerPhone LIKE @search OR campaign LIKE @search OR callId LIKE @search OR customerName LIKE @search)`);
       params['search'] = { value: `%${search}%` };
     }
     if (talkTimeMin !== undefined) {

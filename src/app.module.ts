@@ -5,8 +5,10 @@ import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { WinstonModule } from 'nest-winston';
 import * as winston from 'winston';
+import { ScheduleModule } from '@nestjs/schedule';
 import appConfig from './config/app.config';
 import databaseConfig from './config/database.config';
+import etlConfig from './config/etl.config';
 import jwtConfig from './config/jwt.config';
 import mssqlConfig from './config/mssql.config';
 import redisConfig from './config/redis.config';
@@ -20,6 +22,7 @@ import { AudiosModule } from './modules/audios/audios.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { DashboardModule } from './modules/dashboard/dashboard.module';
 import { InteractionsModule } from './modules/interactions/interactions.module';
+import { EtlModule } from './modules/etl/etl.module';
 import { JobsModule } from './modules/jobs/jobs.module';
 import { PermissionsModule } from './modules/permissions/permissions.module';
 import { RolesModule } from './modules/roles/roles.module';
@@ -34,7 +37,7 @@ import { JwtAuthGuard } from './modules/auth/guards/jwt-auth.guard';
     ConfigModule.forRoot({
       isGlobal: true,
       envFilePath: '.env',
-      load: [appConfig, databaseConfig, jwtConfig, mssqlConfig, redisConfig, smtpConfig],
+      load: [appConfig, databaseConfig, etlConfig, jwtConfig, mssqlConfig, redisConfig, smtpConfig],
     }),
 
     // Winston Logger
@@ -102,6 +105,9 @@ import { JwtAuthGuard } from './modules/auth/guards/jwt-auth.guard';
       }),
     }),
 
+    // Scheduled tasks
+    ScheduleModule.forRoot(),
+
     // Health Check
     HealthModule,
 
@@ -115,6 +121,7 @@ import { JwtAuthGuard } from './modules/auth/guards/jwt-auth.guard';
     AudiosModule,
     AlertsModule,
     DashboardModule,
+    EtlModule,
     JobsModule,
   ],
   providers: [

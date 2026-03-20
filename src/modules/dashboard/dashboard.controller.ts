@@ -86,4 +86,19 @@ export class DashboardController {
   getSourceDistribution() {
     return this.dashboardService.getSourceDistribution();
   }
+
+  @Get('dispositions')
+  @Permissions('dashboard:read')
+  @ApiOperation({ summary: 'Get top dispositions from BCB call records for a given period' })
+  @ApiQuery({
+    name: 'period',
+    required: false,
+    description: 'Time period',
+    enum: ['7d', '14d', '30d', '90d'],
+    example: '7d',
+  })
+  @ApiResponse({ status: 200, description: 'Top dispositions with counts and percentages.' })
+  getDispositions(@Query('period') period: string = '7d') {
+    return this.dashboardService.getDispositions(period);
+  }
 }

@@ -1,12 +1,16 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { createPaginatedResult } from '../../common/pagination/paginated-result.interface';
 import { PrismaService } from '../../database/prisma.service';
+import { MssqlService } from '../../database/mssql.service';
 import { CreateAudioDto } from './dto/create-audio.dto';
 import { QueryAudiosDto } from './dto/query-audios.dto';
 
 @Injectable()
 export class AudiosService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma:  PrismaService,
+    private mssql:   MssqlService,
+  ) {}
 
   async findAll(query: QueryAudiosDto) {
     const {
@@ -114,13 +118,29 @@ export class AudiosService {
       this.prisma.audio.aggregate({ _sum: { fileSize: true } }),
     ]);
 
-    // Interaction stats
-    const [totalInteractions, totalInbound, totalOutbound, totalAbandoned] = await Promise.all([
-      this.prisma.interaction.count(),
-      this.prisma.interaction.count({ where: { recordType: 'inbound' } }),
-      this.prisma.interaction.count({ where: { recordType: 'outbound' } }),
-      this.prisma.interaction.count({ where: { abandoned: true } }),
-    ]);
+    // Interaction stats from SQL Server (BCB Go Contact)
+    const intRows = await this.mssql.query<{
+      total: number; inbound: number; outbound: number; abandoned: number;
+    }>(`
+      SELECT
+        COUNT(*)                                               AS total,
+        SUM(CASE WHEN src = 'inbound'  THEN 1 ELSE 0 END)    AS inbound,
+        SUM(CASE WHEN src = 'outbound' THEN 1 ELSE 0 END)    AS outbound,
+        SUM(CASE WHEN abandoned = 1    THEN 1 ELSE 0 END)    AS abandoned
+      FROM (
+        SELECT 'inbound'  AS src, ISNULL(Abandoned, 0) AS abandoned
+          FROM [dbo].[CallRecordManualImportBCBInbs]
+        UNION ALL
+        SELECT 'outbound' AS src, ISNULL(Abandoned, 0) AS abandoned
+          FROM [dbo].[CallRecordManualImportBCBOuts]
+      ) cte
+    `);
+
+    const ir = intRows[0];
+    const totalInteractions = Number(ir?.total    ?? 0);
+    const totalInbound      = Number(ir?.inbound  ?? 0);
+    const totalOutbound     = Number(ir?.outbound ?? 0);
+    const totalAbandoned    = Number(ir?.abandoned ?? 0);
 
     const processingRate =
       totalAudios > 0 ? Math.round((processedAudios / totalAudios) * 100) : 0;
