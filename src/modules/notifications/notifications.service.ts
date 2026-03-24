@@ -24,4 +24,15 @@ export class NotificationsService {
 
     return merge(this.subject.asObservable(), heartbeat$);
   }
+
+  async createPersistent(prisma: any, data: {
+    type: string;
+    title: string;
+    message: string;
+    resourceType?: string;
+    resourceId?: string;
+    userId?: string;
+  }): Promise<void> {
+    await prisma.notification.create({ data: { ...data, read: false } });
+  }
 }

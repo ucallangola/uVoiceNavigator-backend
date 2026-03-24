@@ -1,5 +1,6 @@
 import {
-  Controller, Get, Post, Query, Param, ParseIntPipe, DefaultValuePipe, Sse,
+  Body,
+  Controller, Get, Post, Put, Query, Param, ParseIntPipe, DefaultValuePipe, Sse,
 } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation, ApiQuery } from '@nestjs/swagger';
 import { Observable } from 'rxjs';
@@ -69,6 +70,18 @@ export class EtlController {
     @Query('limit', new DefaultValuePipe(100), ParseIntPipe) limit: number = 100,
   ) {
     return this.etlService.getLogs(runId, page, limit);
+  }
+
+  @Get('schedule')
+  @ApiOperation({ summary: 'Get ETL schedule configuration' })
+  async getSchedule() {
+    return this.etlService.getSchedule();
+  }
+
+  @Put('schedule')
+  @ApiOperation({ summary: 'Update ETL schedule configuration' })
+  async updateSchedule(@Body() body: { enabled: boolean; cronExpression: string; description?: string }) {
+    return this.etlService.updateSchedule(body);
   }
 
   @Sse('stream')

@@ -14,6 +14,7 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { createPaginatedResult } from '../../common/pagination/paginated-result.interface';
 import { MssqlService } from '../../database/mssql.service';
+import { PrismaService } from '../../database/prisma.service';
 import { QueryInteractionsDto } from './dto/query-interactions.dto';
 
 // ── Inbound column names ────────────────────────────────────
@@ -179,7 +180,10 @@ function outSelect(): string {
 export class InteractionsService {
   private readonly logger = new Logger(InteractionsService.name);
 
-  constructor(private mssql: MssqlService) {}
+  constructor(
+    private mssql: MssqlService,
+    private prisma: PrismaService,
+  ) {}
 
   async findAll(query: QueryInteractionsDto) {
     const {
@@ -266,8 +270,9 @@ export class InteractionsService {
       this.mssql.query<{ total: number }>(countSql, params),
     ]);
 
+    const enrichedRows = await this.enrichWithAudio(rows);
     const total = countRows[0]?.total ?? 0;
-    return createPaginatedResult(rows, total, page, limit);
+    return createPaginatedResult(enrichedRows, total, page, limit);
   }
 
   async findOne(id: string) {
@@ -286,7 +291,8 @@ export class InteractionsService {
       throw new NotFoundException(`Interaction with ID ${id} not found`);
     }
 
-    return rows[0];
+    const enriched = await this.enrichWithAudio(rows);
+    return enriched[0];
   }
 
   async getStatistics(dateFrom?: string, dateTo?: string) {
@@ -357,6 +363,35 @@ export class InteractionsService {
       totalTalkTime:       s.totalTalkTime   ?? 0,
       totalHandleTime:     s.totalHandleTime ?? 0,
     };
+  }
+
+  private async enrichWithAudio(interactions: any[]): Promise<any[]> {
+    // Five9 filename: {recordingId}_{callId}_{agentEmail}_{agentPhone}_{time}
+    // The callId in the filename matches the CallId column in SQL Server.
+    const callIds = [...new Set(
+      interactions.map(i => i.callId).filter((id): id is string => !!id),
+    )];
+
+    if (!callIds.length) return interactions.map(i => ({ ...i, audio: null }));
+
+    const audios = await this.prisma.audio.findMany({
+      where: { callId: { in: callIds }, status: 'processed' },
+      select: { id: true, filename: true, wasabiUrl: true, source: true, callId: true, duration: true },
+      orderBy: { processedAt: 'desc' },
+    });
+
+    // Keep the most-recent audio per callId
+    const audioByCallId = new Map<string, typeof audios[0]>();
+    for (const audio of audios) {
+      if (audio.callId && !audioByCallId.has(audio.callId)) {
+        audioByCallId.set(audio.callId, audio);
+      }
+    }
+
+    return interactions.map(i => ({
+      ...i,
+      audio: audioByCallId.get(i.callId) ?? null,
+    }));
   }
 
   // create / update / remove kept as no-ops (data is read-only from SQL Server)

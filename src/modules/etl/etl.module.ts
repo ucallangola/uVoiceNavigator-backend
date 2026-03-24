@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { ConfigModule } from '@nestjs/config';
 import { PrismaService } from '../../database/prisma.service';
 import { NotificationsModule } from '../notifications/notifications.module';
 import { EtlService } from './etl.service';
@@ -9,7 +10,7 @@ import { UploaderService } from './services/uploader.service';
 import { MoverService } from './services/mover.service';
 
 @Module({
-  imports: [NotificationsModule],
+  imports: [NotificationsModule, ConfigModule],
   controllers: [EtlController],
   providers: [
     PrismaService,

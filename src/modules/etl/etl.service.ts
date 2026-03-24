@@ -1,5 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import * as path from 'path';
+import * as fs from 'fs';
+import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../../database/prisma.service';
 import { createPaginatedResult } from '../../common/pagination/paginated-result.interface';
 import { NotificationsService } from '../notifications/notifications.service';
@@ -18,6 +20,7 @@ export class EtlService {
     private uploader:       UploaderService,
     private mover:          MoverService,
     private notifications:  NotificationsService,
+    private config:         ConfigService,
   ) {}
 
   isRunning(): boolean {
@@ -46,9 +49,112 @@ export class EtlService {
       await this.log(runId, 'info', `Found ${files.length} file(s) to process`);
 
       let uploaded = 0;
-      let failed   = 0;
-      let skipped  = 0;
+      let failedCount = 0;
+      let skipped = 0;
+      let retried = 0;
 
+      // ── Retry previously failed files ─────────────────────────────────
+      const failedFiles = await this.prisma.etlFile.findMany({
+        where: { status: 'failed' },
+        orderBy: { createdAt: 'asc' },
+        take: 100,
+      });
+
+      for (const failedFile of failedFiles) {
+        let fileToProcess = failedFile.sourcePath;
+
+        if (!fs.existsSync(failedFile.sourcePath)) {
+          // Try failed dir
+          const failedDir = this.config.get<string>('etl.failedDir');
+          const basename = path.basename(failedFile.filename);
+          const subdir = path.dirname(failedFile.filename);
+          const inFailedDir = subdir && subdir !== '.'
+            ? path.join(failedDir, subdir, basename)
+            : path.join(failedDir, basename);
+
+          if (!fs.existsSync(inFailedDir)) {
+            await this.log(runId, 'warn', `Retry skip: file not found: ${failedFile.filename}`);
+            continue;
+          }
+
+          // Move back to source for processing
+          try {
+            fs.renameSync(inFailedDir, failedFile.sourcePath);
+          } catch {
+            try {
+              fs.copyFileSync(inFailedDir, failedFile.sourcePath);
+              fs.unlinkSync(inFailedDir);
+            } catch (e) {
+              await this.log(runId, 'warn', `Cannot restore ${failedFile.filename} for retry: ${e.message}`);
+              continue;
+            }
+          }
+          fileToProcess = failedFile.sourcePath;
+        }
+
+        await this.prisma.etlFile.update({
+          where: { id: failedFile.id },
+          data: { status: 'pending', errorMsg: null, runId, attemptCount: { increment: 1 } },
+        });
+        await this.log(runId, 'info', `Retrying ${failedFile.filename} (attempt ${failedFile.attemptCount + 1})`);
+        this.notifications.emit('etl:file:started', { runId, filename: failedFile.filename });
+
+        try {
+          const duration = await this.extractDuration(fileToProcess);
+          const result = await this.uploader.upload(fileToProcess, failedFile.filename, failedFile.mimeType ?? 'audio/wav');
+          const basename = path.basename(failedFile.filename);
+
+          const existingAudio = await this.prisma.audio.findFirst({ where: { filename: basename } });
+          if (!existingAudio) {
+            await this.prisma.audio.create({
+              data: {
+                filename:      basename,
+                source:        this.detectSource(basename),
+                agentName:     this.extractAgent(basename),
+                customerPhone: '', // customer phone not available in filename
+                callId:        this.extractCallId(basename),
+                duration,
+                wasabiUrl:     result.wasabiUrl,
+                fileSize:      failedFile.fileSize,
+                status:        'processed',
+                processedAt:   new Date(),
+              },
+            });
+          } else {
+            await this.prisma.audio.update({
+              where: { id: existingAudio.id },
+              data: {
+                callId:      this.extractCallId(basename),
+                wasabiUrl:   result.wasabiUrl,
+                status:      'processed',
+                processedAt: new Date(),
+              },
+            });
+          }
+
+          this.mover.moveToProcessed(fileToProcess, failedFile.filename);
+          await this.prisma.etlFile.update({
+            where: { id: failedFile.id },
+            data: { wasabiKey: result.wasabiKey, wasabiUrl: result.wasabiUrl, status: 'moved', processedAt: new Date() },
+          });
+          await this.log(runId, 'info', `✓ Retry OK: ${failedFile.filename}`);
+          this.notifications.emit('etl:file:done', { runId, filename: failedFile.filename, url: result.wasabiUrl });
+          uploaded++;
+          retried++;
+        } catch (err) {
+          this.mover.moveToFailed(fileToProcess, failedFile.filename);
+          await this.prisma.etlFile.update({
+            where: { id: failedFile.id },
+            data: { status: 'failed', errorMsg: err.message },
+          });
+          await this.log(runId, 'error', `✗ Retry failed: ${failedFile.filename}: ${err.message}`);
+          failedCount++;
+        }
+
+        await this.prisma.etlRun.update({ where: { id: runId }, data: { uploaded, failed: failedCount, retried } });
+      }
+
+      // ── Process new files ──────────────────────────────────────────────
       for (const file of files) {
         // Check if already in DB by filename
         const existing = await this.prisma.etlFile.findFirst({
@@ -74,6 +180,7 @@ export class EtlService {
         this.notifications.emit('etl:file:started', { runId, filename: file.filename });
 
         try {
+          const duration = await this.extractDuration(file.sourcePath);
           const result = await this.uploader.upload(file.sourcePath, file.filename, file.mimeType);
 
           // Save to Audio table as well
@@ -83,8 +190,9 @@ export class EtlService {
               filename:      basename,
               source:        this.detectSource(basename),
               agentName:     this.extractAgent(basename),
-              customerPhone: this.extractPhone(basename),
-              duration:      0,
+              customerPhone: '', // customer phone not available in Five9 filename
+              callId:        this.extractCallId(basename),
+              duration,
               wasabiUrl:     result.wasabiUrl,
               fileSize:      file.fileSize,
               status:        'processed',
@@ -115,24 +223,49 @@ export class EtlService {
           });
           await this.log(runId, 'error', `✗ ${file.filename}: ${err.message}`);
           this.notifications.emit('etl:file:failed', { runId, filename: file.filename, error: err.message });
-          failed++;
+
+          // Persistent notification for individual file failure
+          await this.prisma.notification.create({
+            data: {
+              type:         'etl:file:failed',
+              title:        'Ficheiro falhou no ETL',
+              message:      `${path.basename(file.filename)}: ${err.message}`,
+              resourceType: 'etl_run',
+              resourceId:   runId,
+              read:         false,
+            },
+          });
+
+          failedCount++;
         }
 
         // Update run counters progressively
         await this.prisma.etlRun.update({
           where: { id: runId },
-          data: { uploaded, failed, skipped },
+          data: { uploaded, failed: failedCount, skipped },
         });
       }
 
-      const finalStatus = failed > 0 && uploaded === 0 ? 'failed' : 'completed';
+      const finalStatus = failedCount > 0 && uploaded === 0 ? 'failed' : 'completed';
       await this.prisma.etlRun.update({
         where: { id: runId },
-        data: { status: finalStatus, finishedAt: new Date(), uploaded, failed, skipped },
+        data: { status: finalStatus, finishedAt: new Date(), uploaded, failed: failedCount, skipped },
       });
 
-      await this.log(runId, 'info', `ETL run ${finalStatus}: ${uploaded} uploaded, ${failed} failed, ${skipped} skipped`);
-      this.notifications.emit('etl:completed', { runId, uploaded, failed, skipped, status: finalStatus });
+      await this.log(runId, 'info', `ETL run ${finalStatus}: ${uploaded} uploaded, ${failedCount} failed, ${skipped} skipped`);
+      this.notifications.emit('etl:completed', { runId, uploaded, failed: failedCount, skipped, status: finalStatus });
+
+      // Persistent notification for ETL run completion
+      await this.prisma.notification.create({
+        data: {
+          type:         'etl:completed',
+          title:        `ETL ${finalStatus === 'completed' ? 'Concluído' : 'Falhou'}`,
+          message:      `${uploaded} enviados, ${failedCount} falhas, ${skipped} ignorados`,
+          resourceType: 'etl_run',
+          resourceId:   runId,
+          read:         false,
+        },
+      });
 
       return { runId };
     } catch (err) {
@@ -216,26 +349,60 @@ export class EtlService {
     return run;
   }
 
+  async getSchedule() {
+    const schedule = await this.prisma.etlSchedule.findFirst({ orderBy: { createdAt: 'desc' } });
+    return schedule ?? { enabled: false, cronExpression: '0 2 * * *', description: 'Executar às 02:00 todos os dias' };
+  }
+
+  async updateSchedule(data: { enabled: boolean; cronExpression: string; description?: string }) {
+    const existing = await this.prisma.etlSchedule.findFirst();
+    if (existing) {
+      return this.prisma.etlSchedule.update({ where: { id: existing.id }, data });
+    }
+    return this.prisma.etlSchedule.create({ data });
+  }
+
   private async log(runId: string, level: 'info' | 'warn' | 'error', message: string, metadata?: object) {
     await this.prisma.etlLog.create({ data: { runId, level, message, metadata } });
     this.notifications.emit('etl:log', { runId, level, message, timestamp: new Date().toISOString() });
   }
 
-  private detectSource(filename: string): string {
-    const upper = filename.toUpperCase();
-    if (upper.includes('FIVE9')) return 'FIVE9';
-    return 'GO_CONTACT';
+  private detectSource(_filename: string): string {
+    return 'FIVE9';
   }
 
   private extractAgent(filename: string): string {
-    // Attempt to parse agent name from filename pattern like: AGENT_NAME_DATE.mp3
     const parts = filename.replace(/\.[^.]+$/, '').split('_');
-    if (parts.length >= 2) return parts.slice(0, 2).join(' ');
-    return 'Unknown';
+    const emailPart = parts.find(p => p.includes('@'));
+    if (emailPart) {
+      const localPart = emailPart.split('@')[0];
+      return localPart.split('.').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+    }
+    return parts.length >= 2 ? parts.slice(0, 2).join(' ') : 'Unknown';
   }
 
-  private extractPhone(filename: string): string {
-    const match = filename.match(/\d{9,15}/);
-    return match ? match[0] : '';
+  /**
+   * Extracts the callId from a Five9 filename.
+   * Filename format: {recordingId}_{callId}_{agentEmail}_{agentPhone}_{time}.ext
+   * Example: 6290F70E..._100000000015497_agent@email.com_+244944149626_1_43_41 PM.wav
+   *            → callId = "100000000015497"
+   */
+  private extractCallId(filename: string): string {
+    const name = filename.replace(/\.[^.]+$/, ''); // strip extension
+    const firstUnder = name.indexOf('_');
+    if (firstUnder === -1) return '';
+    const rest = name.slice(firstUnder + 1);
+    const secondUnder = rest.indexOf('_');
+    return secondUnder === -1 ? rest : rest.slice(0, secondUnder);
+  }
+
+  private async extractDuration(filePath: string): Promise<number> {
+    try {
+      const mm = await import('music-metadata');
+      const metadata = await mm.parseFile(filePath, { duration: true });
+      return Math.round(metadata.format.duration ?? 0);
+    } catch {
+      return 0;
+    }
   }
 }

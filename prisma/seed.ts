@@ -185,7 +185,8 @@ async function main() {
     create: {
       id: '00000000-0000-0000-0000-000000000001',
       recipientEmail: 'admin@uvoice.com',
-      schedule: '0 8 * * 1-5', // 8am weekdays
+      alertType: 'scheduled',
+      sendHour: 8,
       enabled: true,
     },
   });

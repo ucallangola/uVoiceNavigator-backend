@@ -1,23 +1,40 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
-import { ConfigService } from '@nestjs/config';
 import { EtlService } from './etl.service';
 
 @Injectable()
 export class EtlScheduler {
   private readonly logger = new Logger(EtlScheduler.name);
 
-  constructor(
-    private etlService: EtlService,
-    private config:     ConfigService,
-  ) {}
+  constructor(private etlService: EtlService) {}
 
-  // Default: run every hour at :00; overridable via ETL_CRON env var.
-  // NestJS @Cron does not support dynamic expressions, so we use a fixed
-  // every-minute check and delegate the schedule check to the service.
-  @Cron('0 * * * *') // top of every hour
+  @Cron('* * * * *') // every minute
   async runScheduled() {
-    this.logger.log('Scheduler triggered ETL run');
-    await this.etlService.run('scheduler');
+    const schedule = await this.etlService.getSchedule();
+    if (!schedule.enabled || !schedule.cronExpression) return;
+
+    if (this.matchesCron(schedule.cronExpression)) {
+      this.logger.log('Scheduler triggered ETL run (dynamic schedule)');
+      await this.etlService.run('scheduler');
+    }
+  }
+
+  private matchesCron(expression: string): boolean {
+    try {
+      const parts = expression.trim().split(/\s+/);
+      if (parts.length < 5) return false;
+      const [minute, hour, dayOfMonth, month, dayOfWeek] = parts;
+      const now = new Date();
+      const match = (field: string, value: number) => field === '*' || parseInt(field) === value;
+      const matchDow = (field: string) => {
+        if (field === '*') return true;
+        const days = field.split('-').map(Number);
+        return days.length === 2
+          ? now.getDay() >= days[0] && now.getDay() <= days[1]
+          : parseInt(field) === now.getDay();
+      };
+      return match(minute, now.getMinutes()) && match(hour, now.getHours()) &&
+             match(dayOfMonth, now.getDate()) && match(month, now.getMonth() + 1) && matchDow(dayOfWeek);
+    } catch { return false; }
   }
 }

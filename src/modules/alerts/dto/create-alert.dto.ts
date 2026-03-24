@@ -1,5 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsBoolean, IsEmail, IsIn, IsNotEmpty, IsOptional, IsString } from 'class-validator';
+import { IsBoolean, IsEmail, IsIn, IsInt, IsNotEmpty, IsOptional, Max, Min } from 'class-validator';
 
 export class CreateAlertDto {
   @ApiProperty({ description: 'Recipient email address', example: 'manager@uvoice.com' })
@@ -8,21 +8,23 @@ export class CreateAlertDto {
   recipientEmail: string;
 
   @ApiProperty({
-    description: 'Alert type: periodic (cron-scheduled) or instant (sent on ETL completion)',
-    enum: ['periodic', 'instant'],
-    default: 'periodic',
+    description: 'Alert type: instant (sent on ETL completion) or scheduled (sent at a specific hour)',
+    enum: ['instant', 'scheduled'],
+    default: 'instant',
   })
-  @IsIn(['periodic', 'instant'])
+  @IsIn(['instant', 'scheduled'])
   @IsOptional()
-  alertType?: 'periodic' | 'instant' = 'periodic';
+  alertType?: 'instant' | 'scheduled' = 'instant';
 
   @ApiPropertyOptional({
-    description: 'Cron expression — required when alertType is periodic',
-    example: '0 8 * * 1-5',
+    description: 'Hour of day to send scheduled alert (0-23) — required when alertType is scheduled',
+    example: 8,
   })
-  @IsString()
+  @IsInt()
+  @Min(0)
+  @Max(23)
   @IsOptional()
-  schedule?: string;
+  sendHour?: number;
 
   @ApiPropertyOptional({ description: 'Whether alert is enabled', default: true })
   @IsOptional()

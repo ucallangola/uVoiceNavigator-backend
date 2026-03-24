@@ -2,14 +2,20 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { createPaginatedResult } from '../../common/pagination/paginated-result.interface';
 import { PrismaService } from '../../database/prisma.service';
 import { MssqlService } from '../../database/mssql.service';
+import { UploaderService } from '../etl/services/uploader.service';
+import { NotificationsService } from '../notifications/notifications.service';
+import { AlertsService } from '../alerts/alerts.service';
 import { CreateAudioDto } from './dto/create-audio.dto';
 import { QueryAudiosDto } from './dto/query-audios.dto';
 
 @Injectable()
 export class AudiosService {
   constructor(
-    private prisma:  PrismaService,
-    private mssql:   MssqlService,
+    private prisma:         PrismaService,
+    private mssql:          MssqlService,
+    private uploader:       UploaderService,
+    private notifications:  NotificationsService,
+    private alerts:         AlertsService,
   ) {}
 
   async findAll(query: QueryAudiosDto) {
@@ -186,5 +192,83 @@ export class AudiosService {
     await this.findOne(id);
     await this.prisma.audio.delete({ where: { id } });
     return { message: `Audio ${id} deleted successfully` };
+  }
+
+  async getStreamUrl(id: string): Promise<{ url: string }> {
+    const audio = await this.findOne(id);
+    if (!audio.wasabiUrl) throw new NotFoundException(`No Wasabi URL for audio ${id}`);
+    const url = await this.uploader.getSignedUrlForStoredUrl(audio.wasabiUrl);
+    return { url };
+  }
+
+  async streamAudio(id: string) {
+    const audio = await this.findOne(id);
+    if (!audio.wasabiUrl) throw new NotFoundException(`No Wasabi URL for audio ${id}`);
+    return this.uploader.getObjectStream(audio.wasabiUrl);
+  }
+
+  async logAccess(audioId: string, userId: string | undefined, action: string, ipAddress?: string, userAgent?: string) {
+    const audio = await this.prisma.audio.findUnique({ where: { id: audioId } });
+
+    await this.prisma.audioAccessLog.create({
+      data: {
+        audioId,
+        userId: userId ?? null,  // userId is nullable — guards against missing JWT sub
+        action,
+        ipAddress,
+        userAgent,
+      },
+    });
+
+    // Resolve user name/email for notifications
+    let userName:  string | null = null;
+    let userEmail: string | null = null;
+    if (userId) {
+      const user = await this.prisma.user.findUnique({ where: { id: userId }, select: { name: true, email: true } });
+      userName  = user?.name  ?? null;
+      userEmail = user?.email ?? null;
+    }
+
+    const filename = audio?.filename ?? audioId;
+    const actionLabel = action === 'play' ? 'reproduzido' : 'descarregado';
+
+    // SSE notification (broadcast to all connected clients with audios:manage permission)
+    this.notifications.emit('audio:accessed', {
+      audioId,
+      filename,
+      action,
+      userName,
+      userEmail,
+      ipAddress,
+      timestamp: new Date().toISOString(),
+    });
+
+    // Persistent notification (stored in DB for the notifications bell)
+    await this.notifications.createPersistent(this.prisma, {
+      type:         'audio:accessed',
+      title:        `Áudio ${actionLabel}`,
+      message:      `"${filename}" foi ${actionLabel} por ${userName ?? userEmail ?? 'utilizador desconhecido'}`,
+      resourceType: 'audio',
+      resourceId:   audioId,
+    });
+
+    // Email to all enabled instant alert recipients (fire-and-forget)
+    this.alerts.sendInstantAlertsForAudioAccess({ audioId, filename, action, userName, userEmail, ipAddress }).catch(() => {});
+  }
+
+  async getAccessLogs(page = 1, limit = 50) {
+    const [data, total] = await Promise.all([
+      this.prisma.audioAccessLog.findMany({
+        orderBy: { createdAt: 'desc' },
+        skip: (page - 1) * limit,
+        take: limit,
+        include: {
+          audio: { select: { filename: true } },
+          user:  { select: { name: true, email: true } },
+        },
+      }),
+      this.prisma.audioAccessLog.count(),
+    ]);
+    return { data, total, page, limit };
   }
 }

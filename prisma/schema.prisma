@@ -24,8 +24,10 @@ model User {
   updatedAt    DateTime  @updatedAt @map("updated_at")
   deletedAt    DateTime? @map("deleted_at")
 
-  roles     UserRole[]
-  auditLogs AuditLog[]
+  roles          UserRole[]
+  auditLogs      AuditLog[]
+  audioAccessLogs AudioAccessLog[]
+  notifications  Notification[]
 
   @@map("users")
 }
@@ -142,7 +144,8 @@ model Audio {
   filename      String
   source        String    // 'GO_CONTACT' | 'FIVE9'
   agentName     String    @map("agent_name")
-  customerPhone String    @map("customer_phone")
+  customerPhone String    @default("") @map("customer_phone")
+  callId        String?   @map("call_id")  // extracted from filename: {recordingId}_{callId}_{...}
   duration      Int       // seconds
   processedAt   DateTime? @map("processed_at")
   uploadedAt    DateTime  @default(now()) @map("uploaded_at")
@@ -152,18 +155,56 @@ model Audio {
   createdAt     DateTime  @default(now()) @map("created_at")
   updatedAt     DateTime  @updatedAt @map("updated_at")
 
+  accessLogs        AudioAccessLog[]
+  audioInteractions AudioInteraction[]
+
   @@index([status])
   @@index([source])
   @@index([agentName])
   @@index([uploadedAt])
+  @@index([callId])
   @@map("audios")
+}
+
+// Links audio files to call records (by phone number — no FK since Interactions live in SQL Server)
+model AudioInteraction {
+  id            String   @id @default(uuid())
+  audioId       String   @map("audio_id")
+  customerPhone String   @map("customer_phone")
+  callId        String   @map("call_id")     // SQL Server call ID
+  matchedAt     DateTime @default(now()) @map("matched_at")
+
+  audio Audio @relation(fields: [audioId], references: [id], onDelete: Cascade)
+
+  @@unique([audioId, callId])
+  @@index([audioId])
+  @@index([customerPhone])
+  @@map("audio_interactions")
+}
+
+model AudioAccessLog {
+  id        String   @id @default(uuid())
+  audioId   String   @map("audio_id")
+  userId    String?  @map("user_id")  // nullable — anonymous/system access allowed
+  action    String   // 'play' | 'download'
+  ipAddress String?  @map("ip_address")
+  userAgent String?  @map("user_agent")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  audio Audio  @relation(fields: [audioId], references: [id], onDelete: Cascade)
+  user  User?  @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([audioId])
+  @@index([userId])
+  @@index([createdAt])
+  @@map("audio_access_logs")
 }
 
 model EmailAlert {
   id             String    @id @default(uuid())
   recipientEmail String    @map("recipient_email")
-  alertType      String    @default("periodic") @map("alert_type") // 'periodic' | 'instant'
-  schedule       String?   // cron expression (required for periodic, null for instant)
+  alertType      String    @default("instant") @map("alert_type") // 'instant' | 'scheduled'
+  sendHour       Int?      @map("send_hour") // 0-23, used only for 'scheduled' type
   enabled        Boolean   @default(true)
   lastSent       DateTime? @map("last_sent")
   createdAt      DateTime  @default(now()) @map("created_at")
@@ -185,6 +226,7 @@ model EtlRun {
   uploaded    Int       @default(0)
   failed      Int       @default(0)
   skipped     Int       @default(0)
+  retried     Int       @default(0)
   errorMsg    String?   @map("error_msg")
 
   files EtlFile[]
@@ -206,6 +248,7 @@ model EtlFile {
   mimeType     String?   @map("mime_type")
   status       String    @default("pending") // 'pending' | 'uploaded' | 'moved' | 'failed'
   errorMsg     String?   @map("error_msg")
+  attemptCount Int       @default(0) @map("attempt_count")
   processedAt  DateTime? @map("processed_at")
   createdAt    DateTime  @default(now()) @map("created_at")
 
@@ -213,6 +256,7 @@ model EtlFile {
 
   @@index([runId])
   @@index([status])
+  @@index([filename])
   @@map("etl_files")
 }
 
@@ -230,6 +274,42 @@ model EtlLog {
   @@index([createdAt])
   @@map("etl_logs")
 }
+
+// Dynamic ETL schedule stored in DB (one active row)
+model EtlSchedule {
+  id             String   @id @default(uuid())
+  enabled        Boolean  @default(false)
+  cronExpression String   @map("cron_expression")
+  description    String?
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  @@map("etl_schedules")
+}
+
+// Persistent in-app notifications
+model Notification {
+  id           String    @id @default(uuid())
+  userId       String?   @map("user_id") // null = broadcast (visible to all)
+  type         String    // 'etl:completed' | 'etl:failed' | 'etl:file:failed' | etc.
+  title        String
+  message      String
+  read         Boolean   @default(false)
+  resourceType String?   @map("resource_type") // 'etl_run' | 'audio'
+  resourceId   String?   @map("resource_id")
+  createdAt    DateTime  @default(now()) @map("created_at")
+
+  user User? @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([read])
+  @@index([createdAt])
+  @@map("notifications")
+}
+
+// ============================================================
+// Audit
+// ============================================================
 
 model AuditLog {
   id         String   @id @default(uuid())
