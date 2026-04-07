@@ -43,8 +43,10 @@ RUN npx prisma generate
 # Copy the compiled application from the builder stage
 COPY --from=builder /app/dist ./dist
 
-# Create a non-root user for better security (optional but recommended)
-RUN adduser -D nestuser
+# Create a non-root user and ensure writable directories
+RUN adduser -D nestuser && \
+    mkdir -p /app/logs && \
+    chown -R nestuser:nestuser /app
 USER nestuser
 
 # Expose the default application port
