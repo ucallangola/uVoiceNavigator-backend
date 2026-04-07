@@ -28,16 +28,25 @@ async function bootstrap() {
   app.use(helmet());
 
   // CORS
+  const allowedOrigins = [
+    frontendUrl,
+    'https://uvoice.ucall.co.ao',
+    'https://uvoice-api.ucall.co.ao',
+    'http://localhost:3000',
+    'http://localhost:4200',
+    'http://localhost:5173',
+    'http://localhost:8080',
+    'http://localhost:8081',
+    'http://localhost:8082',
+  ];
+
   app.enableCors({
-    origin: [
-      frontendUrl,
-      'http://localhost:3000',
-      'http://localhost:4200',
-      'http://localhost:5173',
-      'http://localhost:8080',
-      'http://localhost:8081',
-      'http://localhost:8082',
-    ],
+    origin: (origin, callback) => {
+      // Allow requests with no origin (e.g. server-to-server, curl, Swagger)
+      if (!origin) return callback(null, true);
+      if (allowedOrigins.includes(origin)) return callback(null, true);
+      callback(new Error(`CORS: origin '${origin}' not allowed`));
+    },
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization', 'Accept'],
     credentials: true,
