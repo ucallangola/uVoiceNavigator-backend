@@ -5,10 +5,16 @@ import { Readable } from 'stream';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import * as fs from 'fs';
 import * as Ffmpeg from 'fluent-ffmpeg';
-import ffmpegStatic from 'ffmpeg-static';
 
-// Point fluent-ffmpeg at the bundled binary so no system ffmpeg is needed.
-if (ffmpegStatic) Ffmpeg.setFfmpegPath(ffmpegStatic);
+// ffmpeg-static exports a bare string in CJS; using require() bypasses the
+// ESM default-import interop that compiles to `.default` (which is undefined).
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const ffmpegBinary: string | null = require('ffmpeg-static');
+if (ffmpegBinary) {
+  Ffmpeg.setFfmpegPath(ffmpegBinary);
+} else {
+  new Logger('UploaderService').warn('ffmpeg-static binary not found; ffmpeg must be on PATH');
+}
 
 export interface UploadResult {
   wasabiKey: string;

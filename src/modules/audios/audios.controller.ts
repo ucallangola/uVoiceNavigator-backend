@@ -4,6 +4,7 @@ import {
   DefaultValuePipe,
   Delete,
   Get,
+  Logger,
   Param,
   ParseIntPipe,
   Post,
@@ -34,6 +35,7 @@ import { QueryAudiosDto } from './dto/query-audios.dto';
 @UseGuards(RolesGuard)
 @Controller('audios')
 export class AudiosController {
+  private readonly logger = new Logger(AudiosController.name);
   constructor(private readonly audiosService: AudiosService) {}
 
   @Get()
@@ -74,8 +76,21 @@ export class AudiosController {
 
     res.setHeader('Content-Type', contentType);
     res.setHeader('Cache-Control', 'no-cache');
-
     res.status(200);
+
+    // Must attach an 'error' listener before piping: if the ffmpeg transcode
+    // fails after the stream is returned, destroy(err) emits 'error' on the
+    // Readable. Without a listener Node.js treats it as an unhandled error
+    // and crashes the process.
+    (body as Readable).on('error', (err) => {
+      this.logger.error(`Audio stream error for ${id}: ${err.message}`);
+      if (!res.headersSent) {
+        res.status(500).json({ message: 'Erro ao transcodificar áudio' });
+      } else {
+        res.destroy();
+      }
+    });
+
     (body as Readable).pipe(res);
   }
 
