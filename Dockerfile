@@ -43,7 +43,8 @@ RUN npx prisma generate
 # Copy the compiled application from the builder stage
 COPY --from=builder /app/dist ./dist
 
-# Create a non-root user and ensure writable directories
+# Create a non-root user, create the logs directory, and transfer ownership
+# of the entire /app tree — must come AFTER all COPY commands
 RUN adduser -D nestuser && \
     mkdir -p /app/logs && \
     chown -R nestuser:nestuser /app

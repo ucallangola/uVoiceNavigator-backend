@@ -1,6 +1,7 @@
 import { BullModule } from '@nestjs/bull';
 import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
+import * as fs from 'fs';
 import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { WinstonModule } from 'nest-winston';
@@ -47,18 +48,31 @@ import { JwtAuthGuard } from './modules/auth/guards/jwt-auth.guard';
         const logDir = configService.get<string>('app.logDir') || 'logs';
         const logLevel = configService.get<string>('app.logLevel') || 'debug';
 
-        return {
-          transports: [
-            new winston.transports.Console({
-              level: logLevel,
-              format: winston.format.combine(
-                winston.format.timestamp({ format: 'YYYY-MM-DD HH:mm:ss' }),
-                winston.format.colorize(),
-                winston.format.printf(({ timestamp, level, message, context, trace }) => {
-                  return `${timestamp} [${context || 'Application'}] ${level}: ${message}${trace ? '\n' + trace : ''}`;
-                }),
-              ),
-            }),
+        // Ensure the log directory exists before Winston tries to create it.
+        // If creation fails (e.g. permission denied), fall back to console-only logging.
+        let fileLoggingEnabled = false;
+        try {
+          fs.mkdirSync(logDir, { recursive: true });
+          fileLoggingEnabled = true;
+        } catch {
+          console.warn(`[Logger] Cannot create log directory "${logDir}". File logging disabled. Set LOG_DIR to a writable path (e.g. /tmp/logs).`);
+        }
+
+        const transports: winston.transport[] = [
+          new winston.transports.Console({
+            level: logLevel,
+            format: winston.format.combine(
+              winston.format.timestamp({ format: 'YYYY-MM-DD HH:mm:ss' }),
+              winston.format.colorize(),
+              winston.format.printf(({ timestamp, level, message, context, trace }) => {
+                return `${timestamp} [${context || 'Application'}] ${level}: ${message}${trace ? '\n' + trace : ''}`;
+              }),
+            ),
+          }),
+        ];
+
+        if (fileLoggingEnabled) {
+          transports.push(
             new winston.transports.File({
               filename: `${logDir}/error.log`,
               level: 'error',
@@ -74,8 +88,10 @@ import { JwtAuthGuard } from './modules/auth/guards/jwt-auth.guard';
                 winston.format.json(),
               ),
             }),
-          ],
-        };
+          );
+        }
+
+        return { transports };
       },
     }),
 
