@@ -11,6 +11,8 @@ import * as bcrypt from 'bcrypt';
 import { PrismaService } from '../../database/prisma.service';
 import { LoginDto } from './dto/login.dto';
 import { JwtPayload } from './strategies/jwt.strategy';
+import { UpdateProfileDto } from './dto/update-profile.dto';
+import { ChangePasswordDto } from './dto/change-password.dto';
 
 export interface AuthTokens {
   accessToken: string;
@@ -182,6 +184,43 @@ export class AuthService {
       name: user.name,
       roles,
     };
+  }
+
+  async updateProfile(userId: string, dto: UpdateProfileDto): Promise<AuthUser> {
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: { name: dto.name },
+    });
+    return this.getMe(userId);
+  }
+
+  async changePassword(userId: string, dto: ChangePasswordDto): Promise<{ message: string }> {
+    const user = await this.prisma.user.findUnique({ where: { id: userId, deletedAt: null } });
+
+    if (!user) {
+      throw new UnauthorizedException('Utilizador não encontrado');
+    }
+
+    const isCurrentValid = await bcrypt.compare(dto.currentPassword, user.passwordHash);
+    if (!isCurrentValid) {
+      throw new BadRequestException('A senha atual está incorreta');
+    }
+
+    if (dto.currentPassword === dto.newPassword) {
+      throw new BadRequestException('A nova senha deve ser diferente da atual');
+    }
+
+    const bcryptRounds = parseInt(process.env.BCRYPT_ROUNDS, 10) || 12;
+    const passwordHash = await bcrypt.hash(dto.newPassword, bcryptRounds);
+
+    // Update password and rotate refresh token (invalidate other sessions)
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: { passwordHash, refreshToken: null },
+    });
+
+    this.logger.log(`Password changed for user: ${userId}`);
+    return { message: 'Senha alterada com sucesso. Por favor faça login novamente.' };
   }
 
   private async generateTokens(userId: string, email: string): Promise<AuthTokens> {
