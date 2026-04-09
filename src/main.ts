@@ -18,7 +18,7 @@ async function bootstrap() {
   const configService = app.get(ConfigService);
   const port = configService.get<number>('app.port') || 3000;
   const apiVersion = configService.get<string>('app.apiVersion') || 'v1';
-  const frontendUrl = configService.get<string>('app.frontendUrl') || 'http://localhost:5173';
+  const frontendUrl = configService.get<string>('app.frontendUrl') || 'https://uvoice.ucall.co.ao';
   const nodeEnv = configService.get<string>('app.nodeEnv') || 'development';
 
   // Set global prefix
