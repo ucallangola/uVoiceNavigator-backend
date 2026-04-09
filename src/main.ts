@@ -37,6 +37,8 @@ async function bootstrap() {
       'http://localhost:8080',
       'http://localhost:8081',
       'http://localhost:8082',
+      'https://uvoice.ucall.co.ao',
+      'https://uvoice.ucall.co.ao/'
     ],
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization', 'Accept'],
