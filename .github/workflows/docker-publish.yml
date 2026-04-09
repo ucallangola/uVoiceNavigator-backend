@@ -2,7 +2,7 @@ name: Docker Image CI Master
 
 on:
   push:
-    branches: [ develop,main ]
+    branches: [ develop,main,fix/allPage ]
     
 jobs:
   build:
